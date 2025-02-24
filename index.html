@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>City Flyer</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background: #1a1a2e;
+        }
+        canvas {
+            border: 2px solid #000;
+            background: linear-gradient(#1a1a2e, #4a4a8f);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas" width="320" height="480"></canvas>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Game constants
+        const GRAVITY = 0.25;
+        const FLAP_SPEED = -7;
+        const BUILDING_SPEED = 2;
+        const BUILDING_SPAWN_INTERVAL = 1500;
+        const BUILDING_GAP = 150;
+
+        // Game state
+        let plane = {
+            x: 50,
+            y: canvas.height / 2,
+            velocity: 0,
+            width: 40,
+            height: 20,
+            rotation: 0
+        };
+
+        let buildings = [];
+        let score = 0;
+        let gameOver = false;
+
+        // Event listeners
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                if (gameOver) {
+                    resetGame();
+                } else {
+                    plane.velocity = FLAP_SPEED;
+                }
+            }
+        });
+
+        document.addEventListener('click', () => {
+            if (gameOver) {
+                resetGame();
+            } else {
+                plane.velocity = FLAP_SPEED;
+            }
+        });
+
+        function createBuilding() {
+            const gapPosition = Math.random() * (canvas.height - BUILDING_GAP - 100) + 50;
+            buildings.push({
+                x: canvas.width,
+                topHeight: gapPosition,
+                passed: false,
+                windows: generateWindows(gapPosition)
+            });
+        }
+
+        function generateWindows(topHeight) {
+            const windows = {
+                top: [],
+                bottom: []
+            };
+            
+            // Generate windows for top building
+            for (let y = 0; y < topHeight - 20; y += 30) {
+                for (let x = 5; x < 45; x += 20) {
+                    windows.top.push({ x, y: y + 10 });
+                }
+            }
+            
+            // Generate windows for bottom building
+            for (let y = topHeight + BUILDING_GAP + 20; y < canvas.height - 20; y += 30) {
+                for (let x = 5; x < 45; x += 20) {
+                    windows.bottom.push({ x, y });
+                }
+            }
+            
+            return windows;
+        }
+
+        function resetGame() {
+            plane.y = canvas.height / 2;
+            plane.velocity = 0;
+            plane.rotation = 0;
+            buildings = [];
+            score = 0;
+            gameOver = false;
+        }
+
+        function drawPlane() {
+            ctx.save();
+            ctx.translate(plane.x + plane.width / 2, plane.y + plane.height / 2);
+            
+            // Calculate rotation based on velocity
+            plane.rotation = Math.max(Math.min(plane.velocity * 0.1, Math.PI / 4), -Math.PI / 4);
+            ctx.rotate(plane.rotation);
+            
+            // Draw plane body
+            ctx.fillStyle = '#silver';
+            ctx.beginPath();
+            ctx.moveTo(-plane.width / 2, 0);
+            ctx.lineTo(plane.width / 2, 0);
+            ctx.lineTo(plane.width / 2 - 5, -plane.height / 2);
+            ctx.lineTo(-plane.width / 2 + 5, -plane.height / 2);
+            ctx.closePath();
+            ctx.fill();
+            
+            // Draw wings
+            ctx.fillStyle = '#cc0000';
+            ctx.fillRect(-plane.width / 4, -plane.height, plane.width / 2, plane.height / 2);
+            
+            // Draw tail
+            ctx.fillStyle = '#cc0000';
+            ctx.fillRect(-plane.width / 2, -plane.height / 2, plane.width / 4, plane.height / 3);
+            
+            ctx.restore();
+        }
+
+        function drawBuildings() {
+            buildings.forEach(building => {
+                // Draw top building
+                ctx.fillStyle = '#2c2c54';
+                ctx.fillRect(building.x, 0, 50, building.topHeight);
+                
+                // Draw bottom building
+                ctx.fillRect(building.x, building.topHeight + BUILDING_GAP, 50, 
+                    canvas.height - (building.topHeight + BUILDING_GAP));
+                
+                // Draw windows
+                ctx.fillStyle = '#ffd700';
+                building.windows.top.forEach(window => {
+                    ctx.fillRect(building.x + window.x, window.y, 10, 15);
+                });
+                building.windows.bottom.forEach(window => {
+                    ctx.fillRect(building.x + window.x, window.y, 10, 15);
+                });
+            });
+        }
+
+        function drawScore() {
+            ctx.fillStyle = '#fff';
+            ctx.font = '32px Arial';
+            ctx.fillText(score, canvas.width / 2 - 16, 50);
+        }
+
+        function drawBackground() {
+            // Draw stars
+            ctx.fillStyle = '#fff';
+            for (let i = 0; i < 50; i++) {
+                const x = (Date.now() / 50 + i * 30) % canvas.width;
+                const y = (i * 17) % canvas.height;
+                ctx.fillRect(x, y, 2, 2);
+            }
+        }
+
+        function checkCollision(building) {
+            const planeRight = plane.x + plane.width;
+            const planeBottom = plane.y + plane.height;
+            const buildingLeft = building.x;
+            const buildingRight = building.x + 50;
+
+            if (plane.y < 0 || planeBottom > canvas.height) return true;
+            
+            if (planeRight > buildingLeft && plane.x < buildingRight) {
+                if (plane.y < building.topHeight || planeBottom > building.topHeight + BUILDING_GAP) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function gameLoop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawBackground();
+
+            if (!gameOver) {
+                plane.velocity += GRAVITY;
+                plane.y += plane.velocity;
+
+                buildings.forEach(building => {
+                    building.x -= BUILDING_SPEED;
+
+                    if (!building.passed && building.x + 50 < plane.x) {
+                        score++;
+                        building.passed = true;
+                    }
+
+                    if (checkCollision(building)) {
+                        gameOver = true;
+                    }
+                });
+
+                buildings = buildings.filter(building => building.x > -50);
+            }
+
+            drawBuildings();
+            drawPlane();
+            drawScore();
+
+            if (gameOver) {
+                ctx.fillStyle = '#fff';
+                ctx.font = '24px Arial';
+                ctx.fillText('Game Over! Click to restart', canvas.width / 2 - 100, canvas.height / 2);
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        setInterval(() => {
+            if (!gameOver) createBuilding();
+        }, BUILDING_SPAWN_INTERVAL);
+
+        gameLoop();
+    </script>
+</body>
+</html> 
