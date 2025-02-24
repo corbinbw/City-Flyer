@@ -11,16 +11,16 @@
             align-items: center;
             height: 100vh;
             margin: 0;
-            background: #1a1a2e;
+            background: #87CEEB;
         }
         canvas {
             border: 2px solid #000;
-            background: linear-gradient(#1a1a2e, #4a4a8f);
+            background: linear-gradient(#87CEEB, #E0F6FF);
         }
     </style>
 </head>
 <body>
-    <canvas id="gameCanvas" width="320" height="480"></canvas>
+    <canvas id="gameCanvas" width="480" height="640"></canvas>
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
@@ -31,6 +31,7 @@
         const BUILDING_SPEED = 2;
         const BUILDING_SPAWN_INTERVAL = 1500;
         const BUILDING_GAP = 150;
+        const EARLY_GAME_GAP = 250;  // Bigger gap for early buildings
 
         // Game state
         let plane = {
@@ -39,57 +40,122 @@
             velocity: 0,
             width: 40,
             height: 20,
-            rotation: 0
+            rotation: 0,
+            exploding: false,
+            explosionRadius: 0,
+            explosionParticles: []
         };
 
         let buildings = [];
         let score = 0;
+        let highScore = localStorage.getItem('highScore') || 0;
         let gameOver = false;
+        let explosionStarted = false;
+        let spaceBarPresses = 0;
+        let lastSpaceBarPress = 0;
+        let showGameOver = false;
+        let buildingsPassed = 0;  // Track number of buildings passed
+
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.color = color;
+                this.velocity = {
+                    x: (Math.random() - 0.5) * 8,
+                    y: (Math.random() - 0.5) * 8
+                };
+                this.gravity = 0.3;
+                this.life = 1;
+                this.decay = 0.02;
+            }
+
+            update() {
+                this.velocity.y += this.gravity;
+                this.x += this.velocity.x;
+                this.y += this.velocity.y;
+                this.life -= this.decay;
+            }
+
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.globalAlpha = this.life;
+                ctx.fillRect(this.x, this.y, 4, 4);
+                ctx.globalAlpha = 1;
+            }
+        }
 
         // Event listeners
         document.addEventListener('keydown', (e) => {
             if (e.code === 'Space') {
-                if (gameOver) {
-                    resetGame();
-                } else {
+                if (gameOver && showGameOver) {
+                    const currentTime = Date.now();
+                    if (currentTime - lastSpaceBarPress > 3000) {
+                        spaceBarPresses = 0;
+                    }
+                    
+                    spaceBarPresses++;
+                    lastSpaceBarPress = currentTime;
+                    
+                    if (spaceBarPresses >= 2) {
+                        resetGame();
+                        spaceBarPresses = 0;
+                    }
+                } else if (!gameOver) {
                     plane.velocity = FLAP_SPEED;
                 }
             }
         });
 
         document.addEventListener('click', () => {
-            if (gameOver) {
-                resetGame();
-            } else {
+            if (gameOver && showGameOver) {
+                const currentTime = Date.now();
+                if (currentTime - lastSpaceBarPress > 3000) {
+                    spaceBarPresses = 0;
+                }
+                
+                spaceBarPresses++;
+                lastSpaceBarPress = currentTime;
+                
+                if (spaceBarPresses >= 2) {
+                    resetGame();
+                    spaceBarPresses = 0;
+                }
+            } else if (!gameOver) {
                 plane.velocity = FLAP_SPEED;
             }
         });
 
         function createBuilding() {
-            const gapPosition = Math.random() * (canvas.height - BUILDING_GAP - 100) + 50;
+            // Use bigger gap for first 5 buildings
+            const currentGap = buildingsPassed < 5 ? EARLY_GAME_GAP : BUILDING_GAP;
+            
+            const gapPosition = Math.random() * (canvas.height - currentGap - 100) + 50;
             buildings.push({
                 x: canvas.width,
                 topHeight: gapPosition,
                 passed: false,
-                windows: generateWindows(gapPosition)
+                windows: generateWindows(gapPosition, currentGap),
+                crumbling: false,
+                pieces: [],
+                opacity: 1,
+                number: buildingsPassed
             });
         }
 
-        function generateWindows(topHeight) {
+        function generateWindows(topHeight, currentGap) {
             const windows = {
                 top: [],
                 bottom: []
             };
             
-            // Generate windows for top building
             for (let y = 0; y < topHeight - 20; y += 30) {
                 for (let x = 5; x < 45; x += 20) {
                     windows.top.push({ x, y: y + 10 });
                 }
             }
             
-            // Generate windows for bottom building
-            for (let y = topHeight + BUILDING_GAP + 20; y < canvas.height - 20; y += 30) {
+            for (let y = topHeight + currentGap + 20; y < canvas.height - 20; y += 30) {
                 for (let x = 5; x < 45; x += 20) {
                     windows.bottom.push({ x, y });
                 }
@@ -102,74 +168,163 @@
             plane.y = canvas.height / 2;
             plane.velocity = 0;
             plane.rotation = 0;
+            plane.exploding = false;
+            plane.explosionRadius = 0;
+            plane.explosionParticles = [];
             buildings = [];
             score = 0;
             gameOver = false;
+            explosionStarted = false;
+            showGameOver = false;
+            spaceBarPresses = 0;
+            buildingsPassed = 0;  // Reset buildings passed counter
         }
 
         function drawPlane() {
-            ctx.save();
-            ctx.translate(plane.x + plane.width / 2, plane.y + plane.height / 2);
-            
-            // Calculate rotation based on velocity
-            plane.rotation = Math.max(Math.min(plane.velocity * 0.1, Math.PI / 4), -Math.PI / 4);
-            ctx.rotate(plane.rotation);
-            
-            // Draw plane body
-            ctx.fillStyle = '#silver';
-            ctx.beginPath();
-            ctx.moveTo(-plane.width / 2, 0);
-            ctx.lineTo(plane.width / 2, 0);
-            ctx.lineTo(plane.width / 2 - 5, -plane.height / 2);
-            ctx.lineTo(-plane.width / 2 + 5, -plane.height / 2);
-            ctx.closePath();
-            ctx.fill();
-            
-            // Draw wings
-            ctx.fillStyle = '#cc0000';
-            ctx.fillRect(-plane.width / 4, -plane.height, plane.width / 2, plane.height / 2);
-            
-            // Draw tail
-            ctx.fillStyle = '#cc0000';
-            ctx.fillRect(-plane.width / 2, -plane.height / 2, plane.width / 4, plane.height / 3);
-            
-            ctx.restore();
+            if (!plane.exploding) {
+                ctx.save();
+                ctx.translate(plane.x + plane.width / 2, plane.y + plane.height / 2);
+                
+                plane.rotation = Math.max(Math.min(plane.velocity * 0.1, Math.PI / 4), -Math.PI / 4);
+                ctx.rotate(plane.rotation);
+                
+                // Draw plane body
+                ctx.fillStyle = '#D3D3D3';
+                ctx.beginPath();
+                ctx.moveTo(-plane.width / 2, 0);
+                ctx.lineTo(plane.width / 2, 0);
+                ctx.lineTo(plane.width / 2 - 5, -plane.height / 2);
+                ctx.lineTo(-plane.width / 2 + 5, -plane.height / 2);
+                ctx.closePath();
+                ctx.fill();
+                
+                // Draw wings
+                ctx.fillStyle = '#4169E1';
+                ctx.fillRect(-plane.width / 4, -plane.height, plane.width / 2, plane.height / 2);
+                
+                // Draw tail
+                ctx.fillStyle = '#4169E1';
+                ctx.fillRect(-plane.width / 2, -plane.height / 2, plane.width / 4, plane.height / 3);
+                
+                ctx.restore();
+            } else {
+                // Draw explosion particles
+                plane.explosionParticles.forEach((particle, index) => {
+                    particle.update();
+                    particle.draw();
+                    if (particle.life <= 0) {
+                        plane.explosionParticles.splice(index, 1);
+                    }
+                });
+            }
+        }
+
+        function createExplosion() {
+            const colors = ['#FF4500', '#FF8C00', '#FFD700', '#FF6347'];
+            for (let i = 0; i < 50; i++) {
+                plane.explosionParticles.push(
+                    new Particle(
+                        plane.x + plane.width / 2,
+                        plane.y + plane.height / 2,
+                        colors[Math.floor(Math.random() * colors.length)]
+                    )
+                );
+            }
         }
 
         function drawBuildings() {
             buildings.forEach(building => {
-                // Draw top building
-                ctx.fillStyle = '#2c2c54';
-                ctx.fillRect(building.x, 0, 50, building.topHeight);
+                ctx.globalAlpha = building.opacity;
                 
-                // Draw bottom building
-                ctx.fillRect(building.x, building.topHeight + BUILDING_GAP, 50, 
-                    canvas.height - (building.topHeight + BUILDING_GAP));
+                // Draw buildings
+                ctx.fillStyle = '#4682B4';
+                ctx.fillRect(building.x, 0, 50, building.topHeight);
+                const currentGap = building.number < 5 ? EARLY_GAME_GAP : BUILDING_GAP;
+                ctx.fillRect(building.x, building.topHeight + currentGap, 50, 
+                    canvas.height - (building.topHeight + currentGap));
                 
                 // Draw windows
-                ctx.fillStyle = '#ffd700';
+                ctx.fillStyle = '#FFFFFF';
                 building.windows.top.forEach(window => {
                     ctx.fillRect(building.x + window.x, window.y, 10, 15);
                 });
                 building.windows.bottom.forEach(window => {
                     ctx.fillRect(building.x + window.x, window.y, 10, 15);
                 });
+
+                // Draw crumbling pieces
+                if (building.crumbling) {
+                    building.pieces.forEach((piece, index) => {
+                        piece.y += piece.velocity;
+                        piece.velocity += 0.5;
+                        piece.rotation += piece.rotationSpeed;
+                        
+                        ctx.save();
+                        ctx.translate(piece.x + piece.width/2, piece.y + piece.height/2);
+                        ctx.rotate(piece.rotation);
+                        ctx.fillStyle = piece.color;
+                        ctx.fillRect(-piece.width/2, -piece.height/2, piece.width, piece.height);
+                        ctx.restore();
+
+                        if (piece.y > canvas.height) {
+                            building.pieces.splice(index, 1);
+                        }
+                    });
+                }
+                
+                ctx.globalAlpha = 1;
             });
         }
 
-        function drawScore() {
-            ctx.fillStyle = '#fff';
-            ctx.font = '32px Arial';
-            ctx.fillText(score, canvas.width / 2 - 16, 50);
+        function startBuildingCrumble(building) {
+            building.crumbling = true;
+            building.opacity = 0.5;
+            
+            // Create falling pieces
+            for (let i = 0; i < 10; i++) {
+                building.pieces.push({
+                    x: building.x + Math.random() * 50,
+                    y: Math.random() * canvas.height,
+                    width: 10 + Math.random() * 20,
+                    height: 10 + Math.random() * 20,
+                    velocity: -5 + Math.random() * 2,
+                    rotation: 0,
+                    rotationSpeed: (Math.random() - 0.5) * 0.2,
+                    color: '#4682B4'
+                });
+            }
         }
 
-        function drawBackground() {
-            // Draw stars
-            ctx.fillStyle = '#fff';
-            for (let i = 0; i < 50; i++) {
-                const x = (Date.now() / 50 + i * 30) % canvas.width;
-                const y = (i * 17) % canvas.height;
-                ctx.fillRect(x, y, 2, 2);
+        function drawScore() {
+            // Draw current score
+            ctx.fillStyle = '#000';
+            ctx.font = '32px Arial';
+            ctx.textAlign = 'left';
+            ctx.fillText('Score: ' + score, 10, 40);
+
+            // Draw high score
+            ctx.fillStyle = '#000';
+            ctx.font = '32px Arial';
+            ctx.textAlign = 'right';
+            ctx.fillText('Best: ' + highScore, canvas.width - 10, 40);
+        }
+
+        function drawClouds() {
+            ctx.fillStyle = '#FFFFFF';
+            const time = Date.now() / 2000;
+            
+            // Draw several clouds
+            for (let i = 0; i < 3; i++) {
+                const x = ((time + i * 120) % (canvas.width + 100)) - 50;
+                const y = 50 + i * 100;
+                
+                // Draw cloud shape
+                ctx.beginPath();
+                ctx.arc(x, y, 20, 0, Math.PI * 2);
+                ctx.arc(x + 15, y - 10, 15, 0, Math.PI * 2);
+                ctx.arc(x + 15, y + 10, 15, 0, Math.PI * 2);
+                ctx.arc(x + 30, y, 20, 0, Math.PI * 2);
+                ctx.fill();
             }
         }
 
@@ -178,20 +333,58 @@
             const planeBottom = plane.y + plane.height;
             const buildingLeft = building.x;
             const buildingRight = building.x + 50;
+            const currentGap = building.number < 5 ? EARLY_GAME_GAP : BUILDING_GAP;
+
+            // Secret passage: If we're after building 3 and near the top
+            if (buildingsPassed >= 3 && plane.y < 50) {
+                return false;  // No collision in the secret passage
+            }
 
             if (plane.y < 0 || planeBottom > canvas.height) return true;
             
             if (planeRight > buildingLeft && plane.x < buildingRight) {
-                if (plane.y < building.topHeight || planeBottom > building.topHeight + BUILDING_GAP) {
+                if (plane.y < building.topHeight || planeBottom > building.topHeight + currentGap) {
                     return true;
                 }
             }
             return false;
         }
 
+        function drawGameOverScreen() {
+            // Semi-transparent overlay
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Game Over text
+            ctx.fillStyle = '#FFF';
+            ctx.textAlign = 'center';
+            ctx.font = 'bold 36px Arial';
+            ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 - 60);
+
+            // Score display
+            ctx.font = '24px Arial';
+            ctx.fillText(`Score: ${score}`, canvas.width / 2, canvas.height / 2 - 20);
+            
+            // High score display with animation if beaten
+            if (score >= highScore) {
+                ctx.fillStyle = '#FFD700';
+                ctx.fillText('NEW HIGH SCORE!', canvas.width / 2, canvas.height / 2 + 20);
+            } else {
+                ctx.fillStyle = '#FFF';
+                ctx.fillText(`Best: ${highScore}`, canvas.width / 2, canvas.height / 2 + 20);
+            }
+
+            // Restart instructions
+            ctx.fillStyle = '#FFF';
+            ctx.font = '20px Arial';
+            const pressCount = 2 - spaceBarPresses;
+            ctx.fillText(`Press SPACE or Click ${pressCount} more time${pressCount !== 1 ? 's' : ''} to restart`, 
+                canvas.width / 2, canvas.height / 2 + 60);
+        }
+
         function gameLoop() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            drawBackground();
+            drawClouds();
 
             if (!gameOver) {
                 plane.velocity += GRAVITY;
@@ -203,10 +396,24 @@
                     if (!building.passed && building.x + 50 < plane.x) {
                         score++;
                         building.passed = true;
+                        buildingsPassed++;  // Increment buildings passed
                     }
 
                     if (checkCollision(building)) {
                         gameOver = true;
+                        explosionStarted = true;
+                        plane.exploding = true;
+                        createExplosion();
+                        startBuildingCrumble(building);
+                        
+                        if (score > highScore) {
+                            highScore = score;
+                            localStorage.setItem('highScore', highScore);
+                        }
+
+                        setTimeout(() => {
+                            showGameOver = true;
+                        }, 1000);
                     }
                 });
 
@@ -217,10 +424,8 @@
             drawPlane();
             drawScore();
 
-            if (gameOver) {
-                ctx.fillStyle = '#fff';
-                ctx.font = '24px Arial';
-                ctx.fillText('Game Over! Click to restart', canvas.width / 2 - 100, canvas.height / 2);
+            if (gameOver && showGameOver) {
+                drawGameOverScreen();
             }
 
             requestAnimationFrame(gameLoop);
